@@ -8,7 +8,7 @@ import tiffile as tiff
 import tqdm
 
 
-from tissue_seg import locate_tissue
+from .tissue_seg import locate_tissue
 
 # def csv_to_mask(csv_data):
 #     '''
@@ -222,9 +222,9 @@ def crop_img(opt):
 
     train_csv_path = opt.train_csv
     df_data = pd.read_csv(train_csv_path).set_index('id')
-    rec_num = 0
+    rec_num = 3540
     for index, encs in df_data.iterrows():
-        if index in ['aaa6a05cc', 'cb2d976f4', '0486052bb', '2f6ecfcdf']:
+        if index not in ['aaa6a05cc', 'cb2d976f4', '0486052bb', '2f6ecfcdf']:
             continue
         img = tiff.imread(os.path.join(opt.train_dir, index + '.tiff'))        
         if len(img.shape) == 5:
@@ -245,9 +245,12 @@ def crop_img(opt):
             recs = get_fixed_windows((ww, hh), (opt.aim_size,opt.aim_size),(opt.overlap_size,opt.overlap_size))
             for j, rec in enumerate(recs):
                 # isWhite = False  
-                x1, y1, x2, y2 = rec            
+                x1, y1, x2, y2 = rec
+                print(rec)    
                 dst = img[y + y1:y + y2, x + x1:x + x2]
                 dst_mask = mask[y + y1:y + y2, x + x1:x + x2]
+                print(dst.shape)
+
                 num = np.sum(mask[y + y1:y + y2, x + x1:x + x2])
                 tt = tissue>0
                 tissue_num = np.sum(tt[y + y1:y + y2, x + x1:x + x2])
@@ -308,7 +311,8 @@ if __name__ == "__main__":
     # check_data(opt)
     # get_tissue_mask(opt)
 
-    crop_img(opt)
+    # crop_img(opt)
+    
 
     
 
