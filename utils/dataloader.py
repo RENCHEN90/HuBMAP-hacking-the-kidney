@@ -2,17 +2,13 @@ import os
 import numpy as np
 import cv2
 import pandas as pd
-
 import gc
-
 from albumentations import *
 from sklearn.model_selection import KFold
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import torch
 import torch.utils.data as data
-
 import torchvision
-
 from PIL import Image
 
 
@@ -36,48 +32,62 @@ def img2tensor(img,dtype:np.dtype=np.float32):
     img = np.transpose(img,(2,0,1))
     return torch.from_numpy(img.astype(dtype, copy=False))
 
-# class HuBMAPDataset(Dataset):
-#     def __init__(self, fold=fold, train=True, tfms=None):
-#         ids = pd.read_csv(LABELS).id.values
-#         kf = KFold(n_splits=nfolds,random_state=SEED,shuffle=True)
-#         ids = set(ids[list(kf.split(ids))[fold][0 if train else 1]])
-#         self.fnames = [fname for fname in os.listdir(TRAIN) if fname.split('_')[0] in ids]
-#         self.train = train
-#         self.tfms = tfms
+class MY_HuBMAPDataset(data.Dataset):
+    def __init__(self, data_csv='/home/casxm/zhangqin/HuBMAP-hacking-the-kidney/data/train_set.csv', nfolds=4, fold=0, train=True, tfms=None):
+        all_images = []
+        all_gts = []
+        # ids = []
+        with open(data_csv, 'r') as f:
+            lines = f.readlines()
+        for line in lines:
+            line = line.split()[0]
+            if line:
+                img_path,gt_path = line.split(',', -1)[:2]
+                if img_path and gt_path:
+                    if os.path.basename(img_path) != os.path.basename(gt_path):
+                        raise(Exception,"Data False!")
+                    all_images.append(img_path)
+                    all_gts.append(gt_path)
+        kf = KFold(n_splits=nfolds, random_state=2020, shuffle=True)        
+        ids = np.array(range(0,len(all_images)))
+        ids = set(ids[list(kf.split(ids))[fold][0 if train else 1]])
+        self.images = [all_images[index] for index in ids ]
+        self.masks = [all_gts[index] for index in ids ]
+        self.train = train
+        self.tfms = tfms
         
-#     def __len__(self):
-#         return len(self.fnames)
+    def __len__(self):
+        return len(self.images)
     
-#     def __getitem__(self, idx):
-#         fname = self.fnames[idx]
-#         img = cv2.cvtColor(cv2.imread(os.path.join(TRAIN,fname)), cv2.COLOR_BGR2RGB)
-#         mask = cv2.imread(os.path.join(MASKS,fname),cv2.IMREAD_GRAYSCALE)
-#         if self.tfms is not None:
-#             augmented = self.tfms(image=img,mask=mask)
-#             img,mask = augmented['image'],augmented['mask']
-#         return img2tensor((img/255.0 - mean)/std),img2tensor(mask)
+    def __getitem__(self, idx):
+        # fname = self.fnames[idx]
+        img_path = self.images[idx]
+        mask_path = self.masks[idx]        
+        img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+        mask = cv2.imread(mask_path,cv2.IMREAD_GRAYSCALE)
+        if self.tfms is not None:
+            augmented = self.tfms(image=img,mask=mask)
+            img,mask = augmented['image'],augmented['mask']
+        return img2tensor(img/255.0), img2tensor(mask)
+        
     
-# def get_aug(p=1.0):
-#     return Compose([
-#         HorizontalFlip(),
-#         VerticalFlip(),
-#         RandomRotate90(),
-#         ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.2, rotate_limit=15, p=0.9, 
-#                          border_mode=cv2.BORDER_REFLECT),
-#         OneOf([
-#             OpticalDistortion(p=0.3),
-#             GridDistortion(p=.1),
-#             IAAPiecewiseAffine(p=0.3),
-#         ], p=0.3),
-#         OneOf([
-#             HueSaturationValue(10,15,10),
-#             CLAHE(clip_limit=2),
-#             RandomBrightnessContrast(),            
-#         ], p=0.3),
-#     ], p=p)
-
-
-
+def get_aug(p=1.0):
+    return Compose([ HorizontalFlip(),
+        VerticalFlip(),
+        RandomRotate90(),
+        ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.2, rotate_limit=15, p=0.9, 
+                         border_mode=cv2.BORDER_REFLECT),
+        OneOf([
+            OpticalDistortion(p=0.3),
+            GridDistortion(p=.1),
+            IAAPiecewiseAffine(p=0.3),
+        ], p=0.3),
+        OneOf([
+            HueSaturationValue(10,15,10),
+            CLAHE(clip_limit=2),
+            RandomBrightnessContrast(),            
+        ], p=0.3),
+    ], p=p)
 
 class HuBMAPDataset(data.Dataset):
     def __init__(self, data_csv, transform=None):
@@ -139,16 +149,14 @@ def get_loader(data_list_txt, batchsize=4, shuffle=True, num_workers=4, pin_memo
                                   pin_memory=False)
     return data_loader
 
-
-
 if __name__ == "__main__":
     #example of train images with masks
-    ds = HuBMAPDataset(tfms=get_aug())
-    dl = DataLoader(ds,batch_size=64,shuffle=False,num_workers=NUM_WORKERS)
+    ds = MY_HuBMAPDataset(tfms=get_aug())
+    dl = data.DataLoader(ds,batch_size=64,shuffle=False,num_workers=1)
     imgs,masks = next(iter(dl))
     plt.figure(figsize=(16,16))
     for i,(img,mask) in enumerate(zip(imgs,masks)):
-        img = ((img.permute(1,2,0)*std + mean)*255.0).numpy().astype(np.uint8)
+        img = (img.permute(1,2,0)*255.0).numpy().astype(np.uint8)
         plt.subplot(8,8,i+1)
         plt.imshow(img,vmin=0,vmax=255)
         plt.imshow(mask.squeeze().numpy(), alpha=0.2)
