@@ -3,13 +3,7 @@ import os
 import numpy as np
 import cv2
 
-
-
-
 import torch
-
-
-
 from torch.backends import cudnn
 from torch.autograd import Variable
 import torch.nn.functional as F
@@ -17,7 +11,6 @@ import random
 
 #### network
 from Attention_R2U_Net.network import U_Net,R2U_Net,AttU_Net,R2AttU_Net
-
 
 from PraNet.PraNet_Res2Net import PraNet
 from PraNet.utils import clip_gradient, adjust_lr, AvgMeter
@@ -33,7 +26,30 @@ from datetime import datetime
 
 from utils.process import img_add_mask
 
+from loss_metric.Lovasz_loss import lovasz_hinge
     
+import warnings
+warnings.filterwarnings("ignore")
+
+
+
+
+def seed_everything(seed):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    #the following line gives ~10% speedup
+    #but may lead to some stochasticity in the results 
+    torch.backends.cudnn.benchmark = True
+
+
+
+
+def symmetric_lovasz(outputs, targets):
+    return 0.5*(lovasz_hinge(outputs, targets) + lovasz_hinge(-outputs, 1.0 - targets))
 
 
 def get_miou(result, reference):
@@ -42,13 +58,11 @@ def get_miou(result, reference):
     intersection = np.count_nonzero(result & reference)    
     size_i1 = np.count_nonzero(result)
     size_i2 = np.count_nonzero(reference)
-    try:
+    if size_i1 == 0 and size_i2 == 0:
+        miou = 1.0
+    else:
         miou = intersection / float(size_i1 + size_i2 - intersection)        
-    except ZeroDivisionError:
-        if size_i2 == 0:
-            miou = 1.0
-        else:
-            miou = 0.0    
+   
     return miou
 
 def get_dice(result, reference):
@@ -57,13 +71,10 @@ def get_dice(result, reference):
     intersection = np.count_nonzero(result & reference)    
     size_i1 = np.count_nonzero(result)
     size_i2 = np.count_nonzero(reference)    
-    try:
-        dc = 2. * intersection / float(size_i1 + size_i2)
-    except ZeroDivisionError:
-        if size_i2 == 0:
-            dc = 1.0
-        else:
-            dc = 0.0    
+    if size_i1 == 0 and size_i2 == 0:
+        dc = 1.0
+    else:
+        dc = 2. * intersection / float(size_i1 + size_i2)   
     return dc
 
 
@@ -312,6 +323,7 @@ def main(opt):
     # cudnn.benchmark = True
 
     device = select_device(opt.device, batch_size=opt.batchsize)
+    device = torch.device('cuda')
 
     # print(opt)
 
@@ -370,6 +382,8 @@ def main(opt):
         opt.criterion = torch.nn.BCELoss()
     elif opt.lossfunction == 'structure_loss':
         opt.criterion = structure_loss
+    elif opt.lossfunction == 'symmetric_lovasz' :
+        opt.criterion = symmetric_lovasz
 
 
     print('##########################################\n\n\ntrain start')
@@ -383,6 +397,9 @@ def main(opt):
 
 
 if __name__ == "__main__":
+
+    seed_everything(2020)
+
     from opt import my_opt
     opt = my_opt()
     creat_dir(opt)
