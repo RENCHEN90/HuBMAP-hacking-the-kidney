@@ -273,6 +273,48 @@ def crop_img(opt):
     print('all done:',rec_num)
  
 
+def rle_decode(mask_rle, shape):
+    '''
+    mask_rle: run-length as string formated (start length)
+    shape: (height,width) of array to return 
+    Returns numpy array, 1 - mask, 0 - background
+    '''
+    s = mask_rle.split()
+    starts, lengths = [np.asarray(x, dtype=int) for x in (s[0:][::2], s[1:][::2])]
+    starts -= 1
+    ends = starts + lengths
+    img = np.zeros(shape[0] * shape[1], dtype=np.uint8)
+
+    for lo, hi in zip(starts, ends):
+        img[lo:hi] = 1
+    return img.reshape(shape)
+
+def check_test(opt):
+    test_csv_path = opt.test_csv
+    # df_data = pd.read_csv(test_csv_path).set_index('id')
+    df_data = pd.read_csv(test_csv_path).set_index('id')
+    os.makedirs(opt.check_test_dir,exist_ok=True)
+    for index, encs in df_data.iterrows():
+        encs = encs['predicted']
+        if index=='b2dc8411c':            
+            img = tiff.imread(os.path.join(opt.test_dir, index + '.tiff'))
+            if len(img.shape) == 5:
+                img = np.transpose(img.squeeze(), (1,2,0))
+            print(img.shape)
+            h, w = img.shape[:2]
+            # mask = enc2mask(encs, (w, h))
+            mask = rle_decode(encs,(h,w))
+
+            print(mask.shape)
+            fx = 0.1
+            fy = 0.1
+            res_img = cv2.resize(img, (0, 0), fx=fx, fy=fy, interpolation=cv2.INTER_AREA)
+            res_mask = cv2.resize(mask, (0, 0), fx=fx, fy=fy, interpolation=cv2.INTER_NEAREST)
+            res = img_add_mask(res_img,res_mask)
+            cv2.imwrite(os.path.join(opt.check_test_dir,index+'.png'),res)
+            print('done')
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_csv', type=str,
@@ -304,6 +346,18 @@ if __name__ == "__main__":
     parser.add_argument('--aim_size',type=int,default=1024,help='stage 1 aim size')
     parser.add_argument('--overlap_size', type=int, default=256, help='stage 2 aim size')    
     # parser.add_argument('--value_threshold',type=int,default=5,help='remove the black border by cropping')
+    
+    
+
+    parser.add_argument('--test_csv', type=str,
+                        default='/home/casxm/zhangqin/HuBMAP-hacking-the-kidney/submission.csv', help='ori_image_dir')
+    parser.add_argument('--test_dir', type=str,
+                    default='/home/casxm/zhangqin/Data/test', help='ori_image_dir')
+    parser.add_argument('--check_test_dir', type=str,
+                    default='/home/casxm/zhangqin/Data/p90_check_test_data_kaggle1124_overlap256', help='ori_image_dir')
+    
+
+    
     opt = parser.parse_args()
 
 
@@ -313,7 +367,7 @@ if __name__ == "__main__":
 
     # crop_img(opt)
     
-
+    check_test(opt)
     
 
     
