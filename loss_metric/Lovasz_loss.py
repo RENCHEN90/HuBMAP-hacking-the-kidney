@@ -232,7 +232,5 @@ def mean(l, ignore_nan=False, empty=0):
         return acc
     return acc / n
 
-
-
 def symmetric_lovasz(outputs, targets):
     return 0.5*(lovasz_hinge(outputs, targets) + lovasz_hinge(-outputs, 1.0 - targets))
