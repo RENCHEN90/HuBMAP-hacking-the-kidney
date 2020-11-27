@@ -15,6 +15,14 @@ from Attention_R2U_Net.network import U_Net,R2U_Net,AttU_Net,R2AttU_Net
 from PraNet.PraNet_Res2Net import PraNet
 from PraNet.utils import clip_gradient, adjust_lr, AvgMeter
 
+
+
+from UneXt50.UneXt50 import UneXt50,split_layers
+
+
+####  dataset
+from utils.dataloader import MY_HuBMAPDataset,get_aug
+
 ####  dataset
 from utils.dataloader import get_loader
 
@@ -30,7 +38,6 @@ from loss_metric.Lovasz_loss import lovasz_hinge
     
 import warnings
 warnings.filterwarnings("ignore")
-
 
 
 
@@ -53,6 +60,9 @@ def symmetric_lovasz(outputs, targets):
 
 
 def get_miou(result, reference):
+    if np.count_nonzero(reference) == 0:
+        result = 1 - result
+        reference = 1- reference
     result = np.atleast_1d(result.astype(np.bool))
     reference = np.atleast_1d(reference.astype(np.bool))
     intersection = np.count_nonzero(result & reference)    
@@ -61,11 +71,13 @@ def get_miou(result, reference):
     if size_i1 == 0 and size_i2 == 0:
         miou = 1.0
     else:
-        miou = intersection / float(size_i1 + size_i2 - intersection)        
-   
+        miou = intersection / float(size_i1 + size_i2 - intersection) 
     return miou
 
 def get_dice(result, reference):
+    if np.count_nonzero(reference) == 0:
+        result = 1 - result
+        reference = 1- reference
     result = np.atleast_1d(result.astype(np.bool))
     reference = np.atleast_1d(reference.astype(np.bool))
     intersection = np.count_nonzero(result & reference)    
@@ -158,8 +170,9 @@ def parnet_train(epoch, model, optimizer, train_loader, val_loader=None, device=
         size_rates = [1]
     epoch_loss = 0
     loss_record2, loss_record3, loss_record4, loss_record5 = AvgMeter(), AvgMeter(), AvgMeter(), AvgMeter()
-    # batch_tqdm = tqdm(enumerate(train_loader, start=1),total = len(train_loader),ncols=100, leave=False)
-    for i, pack in tqdm(enumerate(train_loader),total = len(train_loader),ncols=100):
+    batch_tqdm = tqdm(enumerate(train_loader, start=1),total = len(train_loader),ncols=120)
+    for i, pack in batch_tqdm:
+        batch_tqdm.set_description('iter %i'%i)
         for rate in size_rates:
             optimizer.zero_grad()
             # ----  data  prepare ----
@@ -180,7 +193,9 @@ def parnet_train(epoch, model, optimizer, train_loader, val_loader=None, device=
             loss3 = structure_loss(lateral_map_3, gts)
             loss2 = structure_loss(lateral_map_2, gts)
             loss = loss2 + loss3 + loss4 + loss5    # TODO: try different weights for loss
-            epoch_loss += loss.item()
+            epoch_loss += loss.item()                      
+            batch_tqdm.set_postfix(loss2=loss2.item(),loss3=loss3.item(),loss4=loss4.item(),loss5=loss5.item(),loss=loss.item())
+
             # ---- backward ----
             loss.backward()
             clip_gradient(optimizer, opt.clip)
@@ -194,8 +209,8 @@ def parnet_train(epoch, model, optimizer, train_loader, val_loader=None, device=
             # ---- train visualization ----
             # if i % 20 == 0 or i == total_step:
         
-    print('{} Epoch [{:03d}/{:03d}], [lateral-2: {:.4f}, lateral-3: {:0.4f}, lateral-4: {:0.4f}, lateral-5: {:0.4f}]'.format(datetime.now(), epoch, opt.epoch,
-    loss_record2.show(), loss_record3.show(), loss_record4.show(), loss_record5.show()))
+    # print('{} Epoch [{:03d}/{:03d}], [lateral-2: {:.4f}, lateral-3: {:0.4f}, lateral-4: {:0.4f}, lateral-5: {:0.4f}]'.format(datetime.now(), epoch, opt.epoch,
+    # loss_record2.show(), loss_record3.show(), loss_record4.show(), loss_record5.show()))
 
 
     writer.add_scalar('lr/model_lr', optimizer.param_groups[0]['lr'], epoch)
@@ -208,7 +223,7 @@ def parnet_train(epoch, model, optimizer, train_loader, val_loader=None, device=
         print('Epoch {},val data set,dice:{:0.6f},miou:{:0.6f}'.format(epoch, dice, miou))
     
     
-    save_name = '%s-%d_%.6f_%.6f.pth' % (opt.model_type, epoch, dice, miou)
+    save_name = '%s-%d_%.6f_%.6f_%.6f.pth' % (opt.model_type, epoch, dice, miou,epoch_loss)
     save_path = os.path.join( opt.model_save_path,save_name)
     if epoch > opt.start_save_epoch:
         torch.save(model.state_dict(), save_path)
@@ -225,12 +240,6 @@ def train(epoch,model,optimizer,train_loader,val_loader=None,device='cuda'):
     else:
         size_rates = [1]
     epoch_loss = 0
-
-    # batch_tqdm = tqdm(enumerate(train_loader, start=1),total = len(train_loader),ncols=100, leave=False)
-    
-    # for j in tqdm(train_loader):
-    #     print(j)
-
 
     for i, pack in tqdm(enumerate(train_loader),total = len(train_loader),ncols=100):
         for rate in size_rates:
@@ -300,7 +309,7 @@ def eval_net(model, test_loader,epoch,device):
         res = res > 0.5
         gt = gt.squeeze() > 0.5
 
-        if draw_num < opt.save_train_img:        
+        if draw_num < opt.save_train_img and np.random.randint(0,100)<10:        
             dst_img = np.transpose(ori_img.squeeze(), (1, 2, 0))
             # print(np.max(dst_img))
             dst_img = (dst_img * 255).astype(np.uint8)
@@ -323,7 +332,7 @@ def main(opt):
     # cudnn.benchmark = True
 
     device = select_device(opt.device, batch_size=opt.batchsize)
-    device = torch.device('cuda')
+    # device = torch.device('cuda')
 
     # print(opt)
 
